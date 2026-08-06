@@ -26,7 +26,6 @@ function onOpen() {
     .addItem('Booking requests', 'openBookingRequests')
     .addSeparator()
     .addItem('Prepare invoices', 'showInvoiceSidebar')
-    .addItem('Generate PDF for selected invoice', 'generatePdfForSelectedInvoice')
     .addSeparator()
     .addItem('Approve selected booking', 'approveSelectedBooking')
     .addItem('Decline selected booking', 'declineSelectedBooking')
@@ -264,7 +263,7 @@ function createInvoices(studentKeys) {
     created.push(invoiceId);
   });
 
-  return { created, message: created.length + ' invoice' + (created.length === 1 ? '' : 's') + ' created.' };
+  return { created, message: created.length + ' invoice' + (created.length === 1 ? '' : 's') + ' created with PDF.' };
 }
 
 function archiveInvoicedSessions_(sessionIds, invoiceId) {
