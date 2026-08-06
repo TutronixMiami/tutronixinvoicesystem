@@ -443,16 +443,16 @@ function createBrandedInvoicePdf_(invoice) {
   totals.setBorderWidth(0);
   totals.getCell(0, 0).editAsText().setBold(true);
   totals.getCell(0, 1).getChild(0).asParagraph().setAlignment(DocumentApp.HorizontalAlignment.RIGHT);
-  totals.getCell(1, 0).setBackgroundColor(coral).editAsText().setBold(true).setForegroundColor(white).setFontSize(12);
-  totals.getCell(1, 1).setBackgroundColor(coral).editAsText().setBold(true).setForegroundColor(white).setFontSize(12);
+  totals.getCell(1, 0).setBackgroundColor(forest).editAsText().setBold(true).setForegroundColor(white).setFontSize(12);
+  totals.getCell(1, 1).setBackgroundColor(forest).editAsText().setBold(true).setForegroundColor(white).setFontSize(12);
   totals.getCell(1, 1).getChild(0).asParagraph().setAlignment(DocumentApp.HorizontalAlignment.RIGHT);
 
   body.appendParagraph('');
   const payment = body.appendTable([['PAYMENT INSTRUCTIONS'], [paymentInstructions]]);
   payment.setBorderColor(forest).setBorderWidth(1);
-  payment.getCell(0, 0).setBackgroundColor(yellow);
+  payment.getCell(0, 0).setBackgroundColor(cream);
   payment.getCell(0, 0).editAsText().setBold(true).setForegroundColor(forest);
-  payment.getCell(1, 0).setBackgroundColor(cream);
+  payment.getCell(1, 0).setBackgroundColor(white);
 
   body.appendParagraph('');
   const footer = body.appendParagraph('Thank you for choosing ' + businessName + '.');
@@ -460,7 +460,7 @@ function createBrandedInvoicePdf_(invoice) {
   footer.editAsText().setBold(true).setFontSize(10).setForegroundColor(forest);
   const subfooter = body.appendParagraph('Tutoring + Academic Coaching + Executive Function');
   subfooter.setAlignment(DocumentApp.HorizontalAlignment.CENTER);
-  subfooter.editAsText().setFontSize(8).setForegroundColor(coral);
+  subfooter.editAsText().setFontSize(8).setForegroundColor(forest);
 
   doc.saveAndClose();
   const sourceFile = DriveApp.getFileById(doc.getId());
