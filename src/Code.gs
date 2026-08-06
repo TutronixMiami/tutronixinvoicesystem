@@ -235,15 +235,22 @@ function createInvoices(studentKeys) {
 }
 
 function nextInvoiceId_() {
-  const sheet = getBook_().getSheetByName(TUTRONIX.sheets.settings);
-  const values = sheet.getRange(2, 1, Math.max(sheet.getLastRow() - 1, 1), 2).getValues();
-  const settings = {};
-  values.forEach(row => settings[row[0]] = row[1]);
-  const prefix = settings['Invoice Prefix'] || 'TUT';
-  const next = Number(settings['Next Invoice Number'] || 1001);
-  const rowIndex = values.findIndex(row => row[0] === 'Next Invoice Number') + 2;
-  sheet.getRange(rowIndex, 2).setValue(next + 1);
-  return prefix + '-' + next;
+  const book = getBook_();
+  const invoices = book.getSheetByName(TUTRONIX.sheets.invoices);
+  const dateKey = Utilities.formatDate(new Date(), book.getSpreadsheetTimeZone(), 'MMddyy');
+  let highestSequence = 0;
+
+  if (invoices && invoices.getLastRow() >= 2) {
+    const existingIds = invoices.getRange(2, 1, invoices.getLastRow() - 1, 1).getDisplayValues();
+    existingIds.forEach(row => {
+      const invoiceId = String(row[0] || '').trim();
+      if (invoiceId.indexOf(dateKey) !== 0) return;
+      const sequence = Number(invoiceId.slice(dateKey.length));
+      if (Number.isFinite(sequence)) highestSequence = Math.max(highestSequence, sequence);
+    });
+  }
+
+  return dateKey + String(highestSequence + 1).padStart(2, '0');
 }
 
 function makeId_(prefix) {
