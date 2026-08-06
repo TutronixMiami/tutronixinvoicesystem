@@ -31,6 +31,7 @@ function onOpen() {
     .addItem('Approve selected booking', 'approveSelectedBooking')
     .addItem('Decline selected booking', 'declineSelectedBooking')
     .addItem('Refresh parent booking links', 'refreshParentBookingLinks')
+    .addItem('Enable automatic booking decisions', 'enableAutomaticBookingDecisions')
     .addToUi();
 }
 
@@ -743,37 +744,83 @@ function submitBookingRequest(request) {
 
 function approveSelectedBooking() {
   const context = getSelectedBookingRequest_();
-  if (context.status !== 'Pending') throw new Error('Only pending requests can be approved.');
+  if (context.status !== 'Pending') throw new Error('Only pending requests can be confirmed.');
+  confirmBookingRequest_(context);
+  SpreadsheetApp.getUi().alert('Booking confirmed and added to Schedule.');
+}
+
+function declineSelectedBooking() {
+  const context = getSelectedBookingRequest_();
+  if (context.status !== 'Pending') throw new Error('Only pending requests can be declined.');
+  declineBookingRequest_(context);
+  SpreadsheetApp.getUi().alert('Booking declined. The time is available again.');
+}
+
+function enableAutomaticBookingDecisions() {
+  installBookingDecisionTrigger();
+  SpreadsheetApp.getUi().alert('Automatic booking decisions are enabled. Changing Pending to Confirmed or Declined will now run the complete workflow.');
+}
+
+function installBookingDecisionTrigger() {
+  const handler = 'handleBookingRequestStatusEdit';
+  ScriptApp.getProjectTriggers().forEach(trigger => {
+    if (trigger.getHandlerFunction() === handler) ScriptApp.deleteTrigger(trigger);
+  });
+  ScriptApp.newTrigger(handler).forSpreadsheet(TUTRONIX.spreadsheetId).onEdit().create();
+  return 'Automatic booking decisions enabled.';
+}
+
+function handleBookingRequestStatusEdit(e) {
+  if (!e || !e.range || e.range.getNumRows() !== 1 || e.range.getNumColumns() !== 1) return;
+  const sheet = e.range.getSheet();
+  if (sheet.getName() !== TUTRONIX.sheets.bookingRequests || e.range.getRow() < 2 || e.range.getColumn() !== 11) return;
+
+  const newStatus = String(e.value || '').trim();
+  if (newStatus !== 'Confirmed' && newStatus !== 'Declined') return;
+  const oldStatus = String(e.oldValue || '').trim();
+  const book = e.source || getBook_();
+  if (oldStatus !== 'Pending') {
+    e.range.setValue(oldStatus || 'Pending');
+    book.toast('Only a Pending request can be confirmed or declined.', 'Booking not changed', 6);
+    return;
+  }
+
+  const lock = LockService.getDocumentLock();
+  lock.waitLock(30000);
+  try {
+    const context = getBookingRequestByRow_(sheet, e.range.getRow());
+    if (newStatus === 'Confirmed') {
+      confirmBookingRequest_(context);
+      book.toast('Booking confirmed, added to Schedule, and the parent was notified when an email was available.', 'Booking confirmed', 6);
+    } else {
+      declineBookingRequest_(context);
+      book.toast('Booking declined and the time was released.', 'Booking declined', 6);
+    }
+  } catch (error) {
+    const scheduleId = String(sheet.getRange(e.range.getRow(), 13).getDisplayValue() || '').trim();
+    if (!scheduleId) sheet.getRange(e.range.getRow(), 11).setValue('Pending');
+    book.toast(error.message, 'Booking update needs attention', 8);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function confirmBookingRequest_(context) {
+  if (context.scheduleId) return context.scheduleId;
+  if (context.status !== 'Pending' && context.status !== 'Confirmed') throw new Error('Only pending requests can be confirmed.');
   if (context.holdExpires instanceof Date && context.holdExpires < new Date()) {
     context.sheet.getRange(context.row, 11).setValue('Expired');
     throw new Error('This request has expired. Ask the parent to choose a new time.');
   }
 
   const schedule = getBook_().getSheetByName(TUTRONIX.sheets.schedule);
-  const studentRecord = findRecord_(TUTRONIX.sheets.students, 2, context.student);
   const parentRecord = findRecord_(TUTRONIX.sheets.parents, 2, context.parent);
   const rate = parentRateForMode_(parentRecord, context.mode);
   const sessionId = makeId_('SES');
   const durationHours = context.duration / 60;
   schedule.appendRow([
-    sessionId,
-    context.date,
-    context.start,
-    context.end,
-    durationHours,
-    context.student,
-    '',
-    context.mode,
-    '',
-    'Scheduled',
-    rate,
-    '',
-    '',
-    context.parent,
-    durationHours,
-    0,
-    0,
-    ''
+    sessionId, context.date, context.start, context.end, durationHours, context.student, '', context.mode, '',
+    'Scheduled', rate, '', '', context.parent, durationHours, 0, 0, ''
   ]);
   const scheduleRow = schedule.getLastRow();
   schedule.getRange(scheduleRow, 2).setNumberFormat('mmm d, yyyy');
@@ -781,20 +828,19 @@ function approveSelectedBooking() {
   schedule.getRange(scheduleRow, 5).setNumberFormat('0.00');
   schedule.getRange(scheduleRow, 11, 1, 2).setNumberFormat('$#,##0.00');
 
-  context.sheet.getRange(context.row, 11).setValue('Approved');
+  context.sheet.getRange(context.row, 11).setValue('Confirmed');
   context.sheet.getRange(context.row, 13).setValue(sessionId);
   context.sheet.getRange(context.row, 14).setValue(new Date()).setNumberFormat('mmm d, yyyy h:mm AM/PM');
   emailBookingDecision_(context, true);
-  SpreadsheetApp.getUi().alert('Booking approved and added to Schedule.');
+  return sessionId;
 }
 
-function declineSelectedBooking() {
-  const context = getSelectedBookingRequest_();
-  if (context.status !== 'Pending') throw new Error('Only pending requests can be declined.');
+function declineBookingRequest_(context) {
+  if (context.scheduleId) throw new Error('This request already has a scheduled session and cannot be declined here.');
+  if (context.status !== 'Pending' && context.status !== 'Declined') throw new Error('Only pending requests can be declined.');
   context.sheet.getRange(context.row, 11).setValue('Declined');
   context.sheet.getRange(context.row, 14).setValue(new Date()).setNumberFormat('mmm d, yyyy h:mm AM/PM');
   emailBookingDecision_(context, false);
-  SpreadsheetApp.getUi().alert('Booking declined. The time is available again.');
 }
 
 function getSelectedBookingRequest_() {
@@ -805,22 +851,17 @@ function getSelectedBookingRequest_() {
   }
   const row = sheet.getActiveRange().getRow();
   if (row < 2) throw new Error('Select a booking request row first.');
+  return getBookingRequestByRow_(sheet, row);
+}
+
+function getBookingRequestByRow_(sheet, row) {
   const values = sheet.getRange(row, 1, 1, 14).getValues()[0];
   if (!values[0]) throw new Error('The selected row does not contain a request.');
   return {
-    sheet,
-    row,
-    requestId: values[0],
-    parent: String(values[2] || ''),
-    student: String(values[3] || ''),
-    date: values[4],
-    start: values[5],
-    end: values[6],
-    duration: Number(values[7]) || 0,
-    mode: String(values[8] || ''),
-    notes: String(values[9] || ''),
-    status: String(values[10] || ''),
-    holdExpires: values[11]
+    sheet, row, requestId: values[0], parent: String(values[2] || ''), student: String(values[3] || ''),
+    date: values[4], start: values[5], end: values[6], duration: Number(values[7]) || 0,
+    mode: String(values[8] || ''), notes: String(values[9] || ''), status: String(values[10] || ''),
+    holdExpires: values[11], scheduleId: String(values[12] || '').trim()
   };
 }
 
