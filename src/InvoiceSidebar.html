@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    :root {
+      --navy: #153b50;
+      --teal: #2a8c82;
+      --mint: #e8f5f2;
+      --ink: #233746;
+      --muted: #6b7d88;
+      --line: #d9e5e7;
+      --white: #ffffff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 20px;
+      background: #f7fafb;
+      color: var(--ink);
+      font: 14px/1.45 Arial, sans-serif;
+    }
+    h1 { margin: 0 0 5px; color: var(--navy); font-size: 22px; }
+    .intro { margin: 0 0 18px; color: var(--muted); }
+    .summary {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+      padding: 10px 12px;
+      background: var(--mint);
+      border: 1px solid #c8e3dd;
+      border-radius: 10px;
+      color: var(--navy);
+      font-weight: 700;
+    }
+    .parent { margin: 18px 0 7px; color: var(--navy); font-size: 13px; font-weight: 700; }
+    .student {
+      display: grid;
+      grid-template-columns: 24px 1fr auto;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 8px;
+      padding: 12px;
+      background: var(--white);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      cursor: pointer;
+    }
+    .student:hover { border-color: var(--teal); box-shadow: 0 2px 8px rgba(21,59,80,.08); }
+    .student input { width: 17px; height: 17px; accent-color: var(--teal); }
+    .name { font-weight: 700; }
+    .details { color: var(--muted); font-size: 12px; }
+    .amount { text-align: right; color: var(--navy); font-weight: 700; }
+    button {
+      width: 100%;
+      margin-top: 16px;
+      padding: 12px 16px;
+      border: 0;
+      border-radius: 9px;
+      background: var(--teal);
+      color: white;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    button:hover { background: #23776f; }
+    button:disabled { background: #9bb9b5; cursor: wait; }
+    .empty, .error, .success {
+      padding: 14px;
+      border-radius: 9px;
+      background: white;
+      border: 1px solid var(--line);
+    }
+    .error { color: #a33a3a; border-color: #efcaca; background: #fff6f6; }
+    .success { color: #17634f; border-color: #bee1d4; background: #effaf6; }
+    .loading { color: var(--muted); }
+  </style>
+</head>
+<body>
+  <h1>Prepare Invoices</h1>
+  <p class="intro">Select the students you want to invoice. Siblings are automatically combined under their parent.</p>
+  <div id="content" class="loading">Loading outstanding sessions…</div>
+  <button id="create" type="button" hidden onclick="createInvoices()">Create selected invoices</button>
+
+  <script>
+    const content = document.getElementById('content');
+    const button = document.getElementById('create');
+
+    google.script.run
+      .withSuccessHandler(renderStudents)
+      .withFailureHandler(showError)
+      .getOutstandingStudents();
+
+    function renderStudents(items) {
+      if (!items.length) {
+        content.className = 'empty';
+        content.textContent = 'There are no completed, uninvoiced sessions right now.';
+        return;
+      }
+
+      const totals = items.reduce((sum, item) => {
+        sum.sessions += item.sessions;
+        sum.hours += item.hours;
+        sum.amount += item.amount;
+        return sum;
+      }, { sessions: 0, hours: 0, amount: 0 });
+
+      let html = '<div class="summary"><span>' + totals.sessions + ' sessions · ' +
+        totals.hours.toFixed(2) + ' hours</span><span>' + money(totals.amount) + '</span></div>';
+      let currentParent = '';
+
+      items.forEach(item => {
+        if (item.parent !== currentParent) {
+          currentParent = item.parent;
+          html += '<div class="parent">' + escapeHtml(currentParent) + '</div>';
+        }
+        const key = item.parent + '|' + item.student;
+        html += '<label class="student">' +
+          '<input type="checkbox" name="student" value="' + escapeAttr(key) + '">' +
+          '<span><span class="name">' + escapeHtml(item.student) + '</span>' +
+          '<br><span class="details">' + item.sessions + ' sessions · ' +
+          item.hours.toFixed(2) + ' hours</span></span>' +
+          '<span class="amount">' + money(item.amount) + '</span></label>';
+      });
+
+      content.className = '';
+      content.innerHTML = html;
+      button.hidden = false;
+    }
+
+    function createInvoices() {
+      const selected = Array.from(document.querySelectorAll('input[name="student"]:checked'))
+        .map(input => input.value);
+      if (!selected.length) {
+        showError({ message: 'Select at least one student.' });
+        return;
+      }
+      button.disabled = true;
+      button.textContent = 'Creating invoices…';
+      google.script.run
+        .withSuccessHandler(result => {
+          content.className = 'success';
+          content.textContent = result.message + ' You can review them on the Invoices tab.';
+          button.hidden = true;
+        })
+        .withFailureHandler(error => {
+          button.disabled = false;
+          button.textContent = 'Create selected invoices';
+          showError(error);
+        })
+        .createInvoices(selected);
+    }
+
+    function showError(error) {
+      content.className = 'error';
+      content.textContent = error && error.message ? error.message : 'Something went wrong.';
+    }
+
+    function money(value) {
+      return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value || 0);
+    }
+
+    function escapeHtml(value) {
+      const div = document.createElement('div');
+      div.textContent = value == null ? '' : String(value);
+      return div.innerHTML;
+    }
+
+    function escapeAttr(value) {
+      return escapeHtml(value).replace(/"/g, '&quot;');
+    }
+  </script>
+</body>
+</html>
