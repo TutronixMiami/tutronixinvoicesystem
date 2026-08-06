@@ -279,8 +279,8 @@ function roundMoney_(value) {
 function generatePdfForSelectedInvoice() {
   const book = getBook_();
   const sheet = book.getActiveSheet();
-  const row = sheet.getActiveRange().getRow();
-  if (sheet.getName() !== TUTRONIX.sheets.invoices || row < 2) {
+  const row = Math.max(sheet.getActiveRange().getRow(), 2);
+  if (sheet.getName() !== TUTRONIX.sheets.invoices) {
     throw new Error('Select an invoice row in the Invoices tab first.');
   }
   const invoiceId = String(sheet.getRange(row, 1).getDisplayValue()).trim();
