@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    :root {
+      --forest: #183d34;
+      --cream: #f5efe2;
+      --paper: #fffdf8;
+      --blue: #c7e3e8;
+      --yellow: #f4c94e;
+      --ink: #17352e;
+      --muted: #64746f;
+      --line: #d9d7ce;
+      --shadow: 0 14px 40px rgba(24,61,52,.12);
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--cream); color: var(--ink); font-family: Arial, sans-serif; }
+    .shell { max-width: 720px; margin: 0 auto; min-height: 100vh; background: var(--paper); box-shadow: var(--shadow); }
+    header { padding: 24px 22px 20px; background: var(--forest); color: white; }
+    .brand { display: flex; align-items: center; gap: 12px; }
+    .brand img { width: 48px; height: 48px; background: white; border-radius: 50%; padding: 3px; }
+    .brand-name { font-weight: 800; letter-spacing: .08em; font-size: 14px; }
+    .brand-sub { font-size: 11px; letter-spacing: .16em; opacity: .8; margin-top: 2px; }
+    h1 { margin: 24px 0 8px; font-size: clamp(30px, 8vw, 46px); line-height: 1.02; }
+    header p { margin: 0; color: #e4eee9; line-height: 1.5; }
+    main { padding: 22px; }
+    .welcome { background: var(--blue); border-radius: 14px; padding: 18px; margin-bottom: 20px; }
+    .welcome strong { display: block; font-size: 20px; margin-bottom: 5px; }
+    .step { margin: 0 0 26px; }
+    .step-label { display: flex; align-items: center; gap: 9px; margin-bottom: 12px; font-weight: 800; }
+    .step-number { width: 26px; height: 26px; display: grid; place-items: center; border-radius: 50%; background: var(--yellow); font-size: 13px; }
+    .choices { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+    .choices.two { grid-template-columns: repeat(2, 1fr); }
+    button { font: inherit; }
+    .choice, .date-btn, .time-btn {
+      border: 1px solid var(--line); background: white; color: var(--forest);
+      border-radius: 12px; padding: 14px 10px; min-height: 52px; font-weight: 700; cursor: pointer;
+    }
+    .choice:hover, .date-btn:hover, .time-btn:hover { border-color: var(--forest); }
+    .choice.selected, .date-btn.selected, .time-btn.selected {
+      background: var(--forest); color: white; border-color: var(--forest);
+    }
+    .dates { display: flex; gap: 10px; overflow-x: auto; padding: 2px 2px 10px; scrollbar-width: thin; }
+    .date-btn { min-width: 130px; text-align: left; }
+    .date-btn small { display: block; opacity: .72; margin-top: 3px; font-weight: 500; }
+    .period { margin: 16px 0 8px; color: var(--muted); font-size: 12px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+    .times { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+    .time-btn { min-height: 48px; padding: 10px 6px; }
+    textarea { width: 100%; min-height: 86px; resize: vertical; padding: 13px; border: 1px solid var(--line); border-radius: 12px; font: inherit; background: white; }
+    .hint { color: var(--muted); font-size: 13px; line-height: 1.45; margin-top: 8px; }
+    .summary { background: var(--cream); border: 1px solid var(--line); border-radius: 14px; padding: 16px; line-height: 1.6; }
+    .summary strong { display: block; font-size: 19px; margin-bottom: 6px; }
+    .submit {
+      width: 100%; margin-top: 15px; padding: 16px; border: 0; border-radius: 12px;
+      background: var(--forest); color: white; font-weight: 800; font-size: 16px; cursor: pointer;
+    }
+    .submit:disabled { opacity: .5; cursor: wait; }
+    .hidden { display: none !important; }
+    .loading, .empty, .error { text-align: center; padding: 28px 16px; border-radius: 14px; }
+    .loading, .empty { background: var(--cream); color: var(--muted); }
+    .error { background: #fbe7e3; color: #7a2f27; }
+    .success { text-align: center; padding: 30px 18px; }
+    .success-mark { width: 70px; height: 70px; margin: 0 auto 18px; display: grid; place-items: center; border-radius: 50%; background: var(--yellow); color: var(--forest); font-size: 34px; font-weight: 900; }
+    .success h2 { font-size: 30px; margin: 0 0 12px; }
+    .success-card { margin-top: 22px; text-align: left; background: var(--blue); border-radius: 14px; padding: 17px; line-height: 1.6; }
+    footer { padding: 18px 22px 28px; color: var(--muted); text-align: center; font-size: 12px; }
+    @media (max-width: 480px) {
+      header, main { padding-left: 16px; padding-right: 16px; }
+      .choices { grid-template-columns: 1fr; }
+      .choices.two { grid-template-columns: repeat(2, 1fr); }
+      .times { grid-template-columns: repeat(3, 1fr); }
+      .time-btn { font-size: 14px; }
+    }
+  </style>
+</head>
+<body>
+<div class="shell">
+  <header>
+    <div class="brand">
+      <img src="https://tutronixmethod.com/tutronix-logo.png" alt="Tutronix">
+      <div><div class="brand-name">TUTRONIX</div><div class="brand-sub">METHOD</div></div>
+    </div>
+    <h1>Request a session.</h1>
+    <p>Choose what works for your family. Tutronix will review your request and confirm it with you.</p>
+  </header>
+
+  <main>
+    <div id="loading" class="loading">Opening your private booking page…</div>
+    <div id="error" class="error hidden"></div>
+
+    <div id="booking" class="hidden">
+      <div class="welcome">
+        <strong id="welcome"></strong>
+        <span>A lighter week starts with a time that works. Choose from the available options below.</span>
+      </div>
+
+      <section class="step">
+        <div class="step-label"><span class="step-number">1</span>Choose a student</div>
+        <div id="students" class="choices"></div>
+      </section>
+
+      <section class="step">
+        <div class="step-label"><span class="step-number">2</span>Choose a session length</div>
+        <div id="durations" class="choices"></div>
+      </section>
+
+      <section class="step">
+        <div class="step-label"><span class="step-number">3</span>Virtual or in person?</div>
+        <div id="modes" class="choices two"></div>
+        <div class="hint">In-person availability automatically includes private travel time before and after your session.</div>
+      </section>
+
+      <section id="availabilityStep" class="step hidden">
+        <div class="step-label"><span class="step-number">4</span>Choose a date and time</div>
+        <div id="slotLoading" class="loading hidden">Finding available times…</div>
+        <div id="slotEmpty" class="empty hidden">No times currently fit those choices. Try another length or format.</div>
+        <div id="slotPicker" class="hidden">
+          <div id="dates" class="dates"></div>
+          <div id="timeGroups"></div>
+        </div>
+      </section>
+
+      <section id="notesStep" class="step hidden">
+        <div class="step-label"><span class="step-number">5</span>Optional notes</div>
+        <textarea id="notes" maxlength="500" placeholder="Anything Tutronix should know? You can leave this blank."></textarea>
+      </section>
+
+      <section id="reviewStep" class="step hidden">
+        <div class="step-label"><span class="step-number">6</span>Review your request</div>
+        <div id="summary" class="summary"></div>
+        <button id="submit" class="submit" onclick="submitRequest()">Send request</button>
+      </section>
+    </div>
+
+    <div id="success" class="success hidden">
+      <div class="success-mark">✓</div>
+      <h2>Request sent.</h2>
+      <p>Your requested time is now being held while Tutronix reviews it. You’ll receive confirmation once it is approved.</p>
+      <div id="successCard" class="success-card"></div>
+    </div>
+  </main>
+  <footer>Private Tutronix family booking page</footer>
+</div>
+
+<script>
+  var ACCESS_TOKEN = <?!= JSON.stringify(accessToken) ?>;
+  var state = { parent: '', students: [], student: '', duration: 0, mode: '', slots: [], dateKey: '', slot: null };
+
+  function showError(error) {
+    document.getElementById('loading').classList.add('hidden');
+    var el = document.getElementById('error');
+    el.textContent = (error && error.message) || String(error);
+    el.classList.remove('hidden');
+  }
+
+  google.script.run
+    .withSuccessHandler(function(data) {
+      state.parent = data.parent;
+      state.students = data.students;
+      document.getElementById('loading').classList.add('hidden');
+      document.getElementById('booking').classList.remove('hidden');
+      document.getElementById('welcome').textContent = 'Welcome, ' + data.parent + '.';
+      renderChoices('students', data.students.map(function(x){ return { value:x, label:x }; }), 'student');
+      renderChoices('durations', data.durations.map(function(x){ return { value:x.minutes, label:x.label }; }), 'duration');
+      renderChoices('modes', data.modes.map(function(x){ return { value:x, label:x }; }), 'mode');
+    })
+    .withFailureHandler(showError)
+    .getBookingPortalData(ACCESS_TOKEN);
+
+  function renderChoices(id, choices, field) {
+    var root = document.getElementById(id);
+    root.innerHTML = '';
+    choices.forEach(function(choice) {
+      var button = document.createElement('button');
+      button.className = 'choice';
+      button.textContent = choice.label;
+      button.onclick = function() {
+        state[field] = choice.value;
+        Array.prototype.forEach.call(root.children, function(el){ el.classList.remove('selected'); });
+        button.classList.add('selected');
+        state.slot = null;
+        if (state.student && state.duration && state.mode) loadSlots();
+      };
+      root.appendChild(button);
+    });
+  }
+
+  function loadSlots() {
+    document.getElementById('availabilityStep').classList.remove('hidden');
+    document.getElementById('notesStep').classList.add('hidden');
+    document.getElementById('reviewStep').classList.add('hidden');
+    document.getElementById('slotPicker').classList.add('hidden');
+    document.getElementById('slotEmpty').classList.add('hidden');
+    document.getElementById('slotLoading').classList.remove('hidden');
+    google.script.run
+      .withSuccessHandler(renderSlots)
+      .withFailureHandler(showError)
+      .getAvailableBookingSlots(ACCESS_TOKEN, Number(state.duration), state.mode);
+  }
+
+  function renderSlots(slots) {
+    state.slots = slots;
+    state.slot = null;
+    document.getElementById('slotLoading').classList.add('hidden');
+    if (!slots.length) {
+      document.getElementById('slotEmpty').classList.remove('hidden');
+      return;
+    }
+    var days = [];
+    slots.forEach(function(slot) {
+      if (!days.some(function(day){ return day.key === slot.dateKey; })) {
+        days.push({ key: slot.dateKey, label: slot.dateLabel });
+      }
+    });
+    var dates = document.getElementById('dates');
+    dates.innerHTML = '';
+    days.forEach(function(day, index) {
+      var b = document.createElement('button');
+      b.className = 'date-btn';
+      var parts = day.label.split(', ');
+      b.innerHTML = parts[0] + '<small>' + parts.slice(1).join(', ') + '</small>';
+      b.onclick = function(){ selectDate(day.key, b); };
+      dates.appendChild(b);
+      if (index === 0) setTimeout(function(){ b.click(); }, 0);
+    });
+    document.getElementById('slotPicker').classList.remove('hidden');
+  }
+
+  function selectDate(dateKey, button) {
+    state.dateKey = dateKey;
+    Array.prototype.forEach.call(document.getElementById('dates').children, function(el){ el.classList.remove('selected'); });
+    button.classList.add('selected');
+    var daySlots = state.slots.filter(function(slot){ return slot.dateKey === dateKey; });
+    var groups = [
+      { label: 'Afternoon', test: function(h){ return h >= 12 && h < 17; } },
+      { label: 'Evening', test: function(h){ return h >= 17; } },
+      { label: 'Morning', test: function(h){ return h < 12; } }
+    ];
+    var root = document.getElementById('timeGroups');
+    root.innerHTML = '';
+    groups.forEach(function(group) {
+      var matching = daySlots.filter(function(slot){ return group.test(new Date(slot.startMs).getHours()); });
+      if (!matching.length) return;
+      var label = document.createElement('div');
+      label.className = 'period';
+      label.textContent = group.label;
+      root.appendChild(label);
+      var grid = document.createElement('div');
+      grid.className = 'times';
+      matching.forEach(function(slot) {
+        var b = document.createElement('button');
+        b.className = 'time-btn';
+        b.textContent = slot.timeLabel;
+        b.onclick = function() {
+          state.slot = slot;
+          Array.prototype.forEach.call(document.querySelectorAll('.time-btn'), function(el){ el.classList.remove('selected'); });
+          b.classList.add('selected');
+          document.getElementById('notesStep').classList.remove('hidden');
+          document.getElementById('reviewStep').classList.remove('hidden');
+          renderSummary();
+          document.getElementById('reviewStep').scrollIntoView({ behavior:'smooth', block:'start' });
+        };
+        grid.appendChild(b);
+      });
+      root.appendChild(grid);
+    });
+  }
+
+  function renderSummary() {
+    var durationLabel = state.duration === 30 ? '30 minutes' : state.duration === 60 ? '1 hour' : '1½ hours';
+    document.getElementById('summary').innerHTML =
+      '<strong>' + escapeHtml(state.student) + '</strong>' +
+      escapeHtml(state.slot.dateLabel) + '<br>' +
+      escapeHtml(state.slot.timeLabel + ' - ' + state.slot.endLabel) + '<br>' +
+      escapeHtml(durationLabel) + ' · ' + escapeHtml(state.mode);
+  }
+
+  function submitRequest() {
+    if (!state.slot) return;
+    var button = document.getElementById('submit');
+    button.disabled = true;
+    button.textContent = 'Sending…';
+    google.script.run
+      .withSuccessHandler(function(result) {
+        document.getElementById('booking').classList.add('hidden');
+        document.getElementById('success').classList.remove('hidden');
+        document.getElementById('successCard').innerHTML =
+          '<strong>' + escapeHtml(state.student) + '</strong><br>' +
+          escapeHtml(result.dateLabel) + '<br>' +
+          escapeHtml(result.timeLabel) + '<br>' +
+          escapeHtml(state.mode);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      })
+      .withFailureHandler(function(error) {
+        button.disabled = false;
+        button.textContent = 'Send request';
+        showError(error);
+      })
+      .submitBookingRequest({
+        accessToken: ACCESS_TOKEN,
+        student: state.student,
+        durationMinutes: Number(state.duration),
+        mode: state.mode,
+        startMs: Number(state.slot.startMs),
+        notes: document.getElementById('notes').value
+      });
+  }
+
+  function escapeHtml(value) {
+    return String(value || '').replace(/[&<>"']/g, function(char) {
+      return ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#039;' })[char];
+    });
+  }
+</script>
+</body>
+</html>
