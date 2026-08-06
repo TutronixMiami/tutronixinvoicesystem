@@ -3,6 +3,7 @@ const TUTRONIX = Object.freeze({
   sheets: {
     dashboard: 'Dashboard',
     schedule: 'Schedule',
+    sessionHistory: 'Session History',
     students: 'Students',
     parents: 'Parents',
     tutors: 'Tutors',
@@ -20,6 +21,7 @@ function onOpen() {
     .createMenu('Tutronix')
     .addItem('Dashboard', 'openDashboard')
     .addItem('Schedule', 'openSchedule')
+    .addItem('Session history', 'openSessionHistory')
     .addItem('Availability', 'openAvailability')
     .addItem('Booking requests', 'openBookingRequests')
     .addSeparator()
@@ -38,6 +40,10 @@ function openDashboard() {
 
 function openSchedule() {
   activateSheet_(TUTRONIX.sheets.schedule);
+}
+
+function openSessionHistory() {
+  activateSheet_(TUTRONIX.sheets.sessionHistory);
 }
 
 function activateSheet_(name) {
@@ -253,10 +259,48 @@ function createInvoices(studentKeys) {
     }
     const pdf = generateInvoicePdfById_(invoiceId);
     invoices.getRange(invoiceRow, 10).setValue(pdf.url);
+    archiveInvoicedSessions_(sessions.map(item => String(item.row[0] || '').trim()), invoiceId);
     created.push(invoiceId);
   });
 
   return { created, message: created.length + ' invoice' + (created.length === 1 ? '' : 's') + ' created.' };
+}
+
+function archiveInvoicedSessions_(sessionIds, invoiceId) {
+  const ids = [...new Set((sessionIds || []).map(id => String(id || '').trim()).filter(Boolean))];
+  if (!ids.length) return;
+
+  const book = getBook_();
+  const schedule = book.getSheetByName(TUTRONIX.sheets.schedule);
+  const history = book.getSheetByName(TUTRONIX.sheets.sessionHistory);
+  if (!schedule || !history) throw new Error('Schedule or Session History is unavailable. No sessions were removed.');
+  if (schedule.getLastRow() < 2) throw new Error('The invoiced sessions could not be found in Schedule.');
+
+  const values = schedule.getRange(2, 1, schedule.getLastRow() - 1, 18).getValues();
+  const idSet = new Set(ids);
+  const matches = [];
+  values.forEach((row, index) => {
+    const sessionId = String(row[0] || '').trim();
+    if (!idSet.has(sessionId)) return;
+    if (String(row[17] || '').trim() !== String(invoiceId).trim()) {
+      throw new Error('Session ' + sessionId + ' is not linked to invoice ' + invoiceId + '. No sessions were removed.');
+    }
+    matches.push({ sheetRow: index + 2, values: row });
+  });
+
+  if (matches.length !== ids.length) {
+    throw new Error('Not every invoiced session was found in Schedule. No sessions were removed.');
+  }
+
+  const archivedAt = new Date();
+  const archiveRows = matches.map(item => item.values.concat([archivedAt]));
+  const historyStartRow = history.getLastRow() + 1;
+  history.getRange(historyStartRow, 1, archiveRows.length, 19).setValues(archiveRows);
+
+  matches
+    .map(item => item.sheetRow)
+    .sort((a, b) => b - a)
+    .forEach(sheetRow => schedule.deleteRow(sheetRow));
 }
 
 function nextInvoiceId_() {
