@@ -49,11 +49,11 @@ function onEdit(e) {
   const lastRow = e.range.getLastRow();
 
   if (name === TUTRONIX.sheets.schedule) {
-    for (let row = firstRow; row <= lastRow; row++) syncScheduleRow_(sheet, row);
+    for (let row = firstRow; row <= lastRow; row++) syncScheduleRow_(sheet, row, e.range.getColumn(), e.range.getLastColumn());
   } else if (name === TUTRONIX.sheets.students) {
     for (let row = firstRow; row <= lastRow; row++) initializeRecordRow_(sheet, row, 'STU', 2, 8);
   } else if (name === TUTRONIX.sheets.parents) {
-    for (let row = firstRow; row <= lastRow; row++) initializeRecordRow_(sheet, row, 'PAR', 2, 7);
+    for (let row = firstRow; row <= lastRow; row++) initializeRecordRow_(sheet, row, 'PAR', 2, 8);
   } else if (name === TUTRONIX.sheets.tutors) {
     for (let row = firstRow; row <= lastRow; row++) initializeRecordRow_(sheet, row, 'TUT', 2, 5);
   }
@@ -67,7 +67,7 @@ function initializeRecordRow_(sheet, row, prefix, nameColumn, activeColumn) {
   if (!activeCell.getValue()) activeCell.setValue('Yes');
 }
 
-function syncScheduleRow_(sheet, row) {
+function syncScheduleRow_(sheet, row, editedStartColumn, editedEndColumn) {
   const range = sheet.getRange(row, 1, 1, 18);
   const values = range.getValues()[0];
   const date = values[1];
@@ -76,6 +76,10 @@ function syncScheduleRow_(sheet, row) {
   const student = String(values[5] || '').trim();
   const tutor = String(values[6] || '').trim();
   const hasEntry = date || start || end || student || tutor || values[8];
+  const firstEditedColumn = editedStartColumn || 1;
+  const lastEditedColumn = editedEndColumn || firstEditedColumn;
+  const studentEdited = firstEditedColumn <= 6 && lastEditedColumn >= 6;
+  const modeEdited = firstEditedColumn <= 8 && lastEditedColumn >= 8;
 
   if (!hasEntry) return;
   if (!values[0]) values[0] = makeId_('SES');
@@ -95,7 +99,10 @@ function syncScheduleRow_(sheet, row) {
     if (!values[8] && studentRecord[6]) values[8] = studentRecord[6];
 
     const parentRecord = parentName ? findRecord_(TUTRONIX.sheets.parents, 2, parentName) : null;
-    if ((values[10] === '' || values[10] == null) && parentRecord) values[10] = parentRecord[5] || '';
+    const suggestedRate = parentRateForMode_(parentRecord, values[7]);
+    if ((studentEdited || modeEdited || values[10] === '' || values[10] == null) && suggestedRate !== '') {
+      values[10] = suggestedRate;
+    }
   }
 
   const selectedTutor = String(values[6] || '').trim();
@@ -116,6 +123,15 @@ function findRecord_(sheetName, keyColumn, key) {
   const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn()).getValues();
   const wanted = String(key).trim().toLowerCase();
   return values.find(row => String(row[keyColumn - 1]).trim().toLowerCase() === wanted) || null;
+}
+
+function parentRateForMode_(parentRecord, mode) {
+  if (!parentRecord) return '';
+  const inPersonRate = parentRecord[5];
+  const virtualRate = parentRecord[6];
+  const isVirtual = String(mode || '').trim().toLowerCase() === 'virtual';
+  if (isVirtual) return virtualRate !== '' && virtualRate != null ? virtualRate : inPersonRate;
+  return inPersonRate !== '' && inPersonRate != null ? inPersonRate : virtualRate;
 }
 
 function showInvoiceSidebar() {
