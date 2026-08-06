@@ -1,2 +1,1 @@
-**/**
-!src/**
+# Source is already limited to src/ by .clasp.json
