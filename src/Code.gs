@@ -211,10 +211,11 @@ function createInvoices(studentKeys) {
       hours += duration;
       total += amount;
       lineRows.push([invoiceId, row[0], row[5], row[1], row[2], row[3], duration, row[8], row[10], amount]);
-      schedule.getRange(item.sheetRow, 18).setValue(invoiceId);
+      schedule.getRange(item.sheetRow, 18).setNumberFormat('@').setValue(invoiceId);
     });
 
-    invoices.appendRow([
+    const invoiceRow = invoices.getLastRow() + 1;
+    invoices.getRange(invoiceRow, 1, 1, 11).setValues([[
       invoiceId,
       parent,
       students.join(', '),
@@ -226,8 +227,19 @@ function createInvoices(studentKeys) {
       '',
       '',
       ''
-    ]);
-    if (lineRows.length) lines.getRange(lines.getLastRow() + 1, 1, lineRows.length, 10).setValues(lineRows);
+    ]]);
+    invoices.getRange(invoiceRow, 1).setNumberFormat('@').setValue(invoiceId);
+    invoices.getRange(invoiceRow, 4).setNumberFormat('mmm d, yyyy');
+
+    if (lineRows.length) {
+      const lineStartRow = lines.getLastRow() + 1;
+      lines.getRange(lineStartRow, 1, lineRows.length, 10).setValues(lineRows);
+      lines.getRange(lineStartRow, 1, lineRows.length, 1)
+        .setNumberFormat('@')
+        .setValues(lineRows.map(row => [String(row[0])]));
+      lines.getRange(lineStartRow, 4, lineRows.length, 1).setNumberFormat('mmm d, yyyy');
+      lines.getRange(lineStartRow, 5, lineRows.length, 2).setNumberFormat('h:mm AM/PM');
+    }
     created.push(invoiceId);
   });
 
