@@ -527,7 +527,7 @@ function doGet(e) {
 function refreshParentBookingLinks() {
   const sheet = getBook_().getSheetByName(TUTRONIX.sheets.parents);
   const lastRow = sheet.getLastRow();
-  const serviceUrl = ScriptApp.getService().getUrl();
+  const serviceUrl = 'https://script.google.com/macros/s/AKfycbyeyKof4HnGPcrU0t_Hhqie4RveyoQHEqC_M2ktwVimCyDVTUVGhZeV-vD29rDK1lK3/exec';
   if (!serviceUrl) throw new Error('Deploy the project as a web app before generating parent links.');
   if (lastRow < 2) return;
 
