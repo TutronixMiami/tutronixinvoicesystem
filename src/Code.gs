@@ -8,7 +8,9 @@ const TUTRONIX = Object.freeze({
     tutors: 'Tutors',
     invoices: 'Invoices',
     invoiceSessions: 'Invoice Sessions',
-    settings: 'Settings'
+    settings: 'Settings',
+    availability: 'Availability',
+    bookingRequests: 'Booking Requests'
   },
   chargeableStatuses: ['Completed', 'Cancelled - Charge', 'No-show - Charge']
 });
@@ -18,9 +20,15 @@ function onOpen() {
     .createMenu('Tutronix')
     .addItem('Dashboard', 'openDashboard')
     .addItem('Schedule', 'openSchedule')
+    .addItem('Availability', 'openAvailability')
+    .addItem('Booking requests', 'openBookingRequests')
     .addSeparator()
     .addItem('Prepare invoices', 'showInvoiceSidebar')
     .addItem('Generate PDF for selected invoice', 'generatePdfForSelectedInvoice')
+    .addSeparator()
+    .addItem('Approve selected booking', 'approveSelectedBooking')
+    .addItem('Decline selected booking', 'declineSelectedBooking')
+    .addItem('Refresh parent booking links', 'refreshParentBookingLinks')
     .addToUi();
 }
 
@@ -57,6 +65,8 @@ function onEdit(e) {
     for (let row = firstRow; row <= lastRow; row++) initializeRecordRow_(sheet, row, 'PAR', 2, 8);
   } else if (name === TUTRONIX.sheets.tutors) {
     for (let row = firstRow; row <= lastRow; row++) initializeRecordRow_(sheet, row, 'TUT', 2, 5);
+  } else if (name === TUTRONIX.sheets.availability) {
+    for (let row = firstRow; row <= lastRow; row++) initializeAvailabilityRow_(sheet, row);
   }
 }
 
@@ -495,4 +505,395 @@ function getSettings_() {
     if (key) result[key] = String(row[1] || '').trim();
   });
   return result;
+}
+
+function openAvailability() {
+  activateSheet_(TUTRONIX.sheets.availability);
+}
+
+function openBookingRequests() {
+  activateSheet_(TUTRONIX.sheets.bookingRequests);
+}
+
+function doGet(e) {
+  const template = HtmlService.createTemplateFromFile('BookingPage');
+  template.accessToken = String((e && e.parameter && e.parameter.access) || '');
+  return template.evaluate()
+    .setTitle('Request a Tutronix Session')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+}
+
+function refreshParentBookingLinks() {
+  const sheet = getBook_().getSheetByName(TUTRONIX.sheets.parents);
+  const lastRow = sheet.getLastRow();
+  const serviceUrl = ScriptApp.getService().getUrl();
+  if (!serviceUrl) throw new Error('Deploy the project as a web app before generating parent links.');
+  if (lastRow < 2) return;
+
+  const values = sheet.getRange(2, 1, lastRow - 1, 12).getValues();
+  values.forEach(row => {
+    const name = String(row[1] || '').trim();
+    const active = String(row[7] || '').trim();
+    if (!name || active !== 'Yes') return;
+    if (!row[9]) row[9] = Utilities.getUuid().replace(/-/g, '');
+    if (!row[11]) row[11] = 'Yes';
+    row[10] = serviceUrl + '?access=' + encodeURIComponent(row[9]);
+  });
+  sheet.getRange(2, 1, values.length, 12).setValues(values);
+  sheet.getRange(2, 11, values.length, 1).setWrap(true);
+  SpreadsheetApp.getUi().alert('Parent booking links are ready.');
+}
+
+function getBookingPortalData(accessToken) {
+  const family = getBookingFamily_(accessToken);
+  return {
+    parent: family.parent,
+    students: family.students,
+    durations: [
+      { minutes: 30, label: '30 minutes' },
+      { minutes: 60, label: '1 hour' },
+      { minutes: 90, label: '1½ hours' }
+    ],
+    modes: ['Virtual', 'In-person']
+  };
+}
+
+function getAvailableBookingSlots(accessToken, durationMinutes, mode) {
+  getBookingFamily_(accessToken);
+  const duration = Number(durationMinutes);
+  if ([30, 60, 90].indexOf(duration) === -1) throw new Error('Choose a valid session length.');
+  if (['Virtual', 'In-person'].indexOf(mode) === -1) throw new Error('Choose Virtual or In-person.');
+
+  expireBookingHolds_();
+  const book = getBook_();
+  const timeZone = book.getSpreadsheetTimeZone();
+  const availability = book.getSheetByName(TUTRONIX.sheets.availability);
+  if (!availability || availability.getLastRow() < 2) return [];
+
+  const now = new Date();
+  const endWindow = new Date(now);
+  endWindow.setDate(endWindow.getDate() + 21);
+  const rows = availability.getRange(2, 1, availability.getLastRow() - 1, 7).getValues();
+  const occupied = getOccupiedBookingIntervals_();
+  const bufferMinutes = mode === 'In-person' ? 30 : 0;
+  const slots = [];
+
+  rows.forEach(row => {
+    const date = row[1];
+    const startTime = row[2];
+    const endTime = row[3];
+    const availableMode = String(row[4] || '');
+    const status = String(row[5] || '');
+    if (!(date instanceof Date) || !(startTime instanceof Date) || !(endTime instanceof Date)) return;
+    if (status !== 'Available') return;
+    if (availableMode !== 'Either' && availableMode !== mode) return;
+
+    const blockStart = combineDateAndTime_(date, startTime);
+    const blockEnd = combineDateAndTime_(date, endTime);
+    if (blockEnd <= now || blockStart > endWindow) return;
+
+    let sessionStart = new Date(blockStart.getTime() + bufferMinutes * 60000);
+    const latestStart = new Date(blockEnd.getTime() - (duration + bufferMinutes) * 60000);
+    sessionStart = roundUpToHalfHour_(sessionStart);
+
+    while (sessionStart <= latestStart) {
+      const sessionEnd = new Date(sessionStart.getTime() + duration * 60000);
+      const reservedStart = new Date(sessionStart.getTime() - bufferMinutes * 60000);
+      const reservedEnd = new Date(sessionEnd.getTime() + bufferMinutes * 60000);
+      const collision = occupied.some(item => intervalsOverlap_(reservedStart, reservedEnd, item.start, item.end));
+      if (!collision && sessionStart > now) {
+        slots.push({
+          startMs: sessionStart.getTime(),
+          endMs: sessionEnd.getTime(),
+          dateKey: Utilities.formatDate(sessionStart, timeZone, 'yyyy-MM-dd'),
+          dateLabel: Utilities.formatDate(sessionStart, timeZone, 'EEEE, MMMM d'),
+          timeLabel: Utilities.formatDate(sessionStart, timeZone, 'h:mm a'),
+          endLabel: Utilities.formatDate(sessionEnd, timeZone, 'h:mm a')
+        });
+      }
+      sessionStart = new Date(sessionStart.getTime() + 30 * 60000);
+    }
+  });
+
+  const unique = {};
+  slots.forEach(slot => { unique[slot.startMs] = slot; });
+  return Object.keys(unique).map(key => unique[key])
+    .sort((a, b) => a.startMs - b.startMs);
+}
+
+function submitBookingRequest(request) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const family = getBookingFamily_(request.accessToken);
+    const student = String(request.student || '').trim();
+    if (family.students.indexOf(student) === -1) throw new Error('Choose a valid student.');
+    const duration = Number(request.durationMinutes);
+    const mode = String(request.mode || '');
+    const startMs = Number(request.startMs);
+    const available = getAvailableBookingSlots(request.accessToken, duration, mode);
+    const selected = available.find(slot => Number(slot.startMs) === startMs);
+    if (!selected) throw new Error('That time is no longer available. Please choose another time.');
+
+    const book = getBook_();
+    const timeZone = book.getSpreadsheetTimeZone();
+    const sheet = book.getSheetByName(TUTRONIX.sheets.bookingRequests);
+    const start = new Date(selected.startMs);
+    const end = new Date(selected.endMs);
+    const dateOnly = new Date(Utilities.formatDate(start, timeZone, 'yyyy/MM/dd'));
+    const holdExpires = new Date(Date.now() + 24 * 60 * 60000);
+    const requestId = makeId_('REQ');
+
+    sheet.appendRow([
+      requestId,
+      new Date(),
+      family.parent,
+      student,
+      dateOnly,
+      start,
+      end,
+      duration,
+      mode,
+      String(request.notes || '').trim(),
+      'Pending',
+      holdExpires,
+      '',
+      ''
+    ]);
+    const row = sheet.getLastRow();
+    sheet.getRange(row, 2).setNumberFormat('mmm d, yyyy h:mm AM/PM');
+    sheet.getRange(row, 5).setNumberFormat('mmm d, yyyy');
+    sheet.getRange(row, 6, 1, 2).setNumberFormat('h:mm AM/PM');
+    sheet.getRange(row, 12).setNumberFormat('mmm d, yyyy h:mm AM/PM');
+
+    MailApp.sendEmail({
+      to: 'tutronixmiami@gmail.com',
+      subject: 'New Tutronix booking request - ' + student,
+      body: [
+        'A new session request is waiting for review.',
+        '',
+        'Parent: ' + family.parent,
+        'Student: ' + student,
+        'Date: ' + selected.dateLabel,
+        'Time: ' + selected.timeLabel + ' - ' + selected.endLabel,
+        'Length: ' + duration + ' minutes',
+        'Mode: ' + mode,
+        request.notes ? 'Notes: ' + String(request.notes).trim() : '',
+        '',
+        'Open the Booking Requests tab to approve or decline it.'
+      ].filter(Boolean).join('\n'),
+      name: 'Tutronix Booking'
+    });
+
+    return {
+      requestId,
+      message: 'Your request has been sent to Tutronix.',
+      dateLabel: selected.dateLabel,
+      timeLabel: selected.timeLabel + ' - ' + selected.endLabel
+    };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function approveSelectedBooking() {
+  const context = getSelectedBookingRequest_();
+  if (context.status !== 'Pending') throw new Error('Only pending requests can be approved.');
+  if (context.holdExpires instanceof Date && context.holdExpires < new Date()) {
+    context.sheet.getRange(context.row, 11).setValue('Expired');
+    throw new Error('This request has expired. Ask the parent to choose a new time.');
+  }
+
+  const schedule = getBook_().getSheetByName(TUTRONIX.sheets.schedule);
+  const studentRecord = findRecord_(TUTRONIX.sheets.students, 2, context.student);
+  const parentRecord = findRecord_(TUTRONIX.sheets.parents, 2, context.parent);
+  const rate = parentRateForMode_(parentRecord, context.mode);
+  const sessionId = makeId_('SES');
+  const durationHours = context.duration / 60;
+  schedule.appendRow([
+    sessionId,
+    context.date,
+    context.start,
+    context.end,
+    durationHours,
+    context.student,
+    '',
+    context.mode,
+    '',
+    'Scheduled',
+    rate,
+    '',
+    '',
+    context.parent,
+    durationHours,
+    0,
+    0,
+    ''
+  ]);
+  const scheduleRow = schedule.getLastRow();
+  schedule.getRange(scheduleRow, 2).setNumberFormat('mmm d, yyyy');
+  schedule.getRange(scheduleRow, 3, 1, 2).setNumberFormat('h:mm AM/PM');
+  schedule.getRange(scheduleRow, 5).setNumberFormat('0.00');
+  schedule.getRange(scheduleRow, 11, 1, 2).setNumberFormat('$#,##0.00');
+
+  context.sheet.getRange(context.row, 11).setValue('Approved');
+  context.sheet.getRange(context.row, 13).setValue(sessionId);
+  context.sheet.getRange(context.row, 14).setValue(new Date()).setNumberFormat('mmm d, yyyy h:mm AM/PM');
+  emailBookingDecision_(context, true);
+  SpreadsheetApp.getUi().alert('Booking approved and added to Schedule.');
+}
+
+function declineSelectedBooking() {
+  const context = getSelectedBookingRequest_();
+  if (context.status !== 'Pending') throw new Error('Only pending requests can be declined.');
+  context.sheet.getRange(context.row, 11).setValue('Declined');
+  context.sheet.getRange(context.row, 14).setValue(new Date()).setNumberFormat('mmm d, yyyy h:mm AM/PM');
+  emailBookingDecision_(context, false);
+  SpreadsheetApp.getUi().alert('Booking declined. The time is available again.');
+}
+
+function getSelectedBookingRequest_() {
+  const book = getBook_();
+  const sheet = book.getActiveSheet();
+  if (sheet.getName() !== TUTRONIX.sheets.bookingRequests) {
+    throw new Error('Select a row in the Booking Requests tab first.');
+  }
+  const row = sheet.getActiveRange().getRow();
+  if (row < 2) throw new Error('Select a booking request row first.');
+  const values = sheet.getRange(row, 1, 1, 14).getValues()[0];
+  if (!values[0]) throw new Error('The selected row does not contain a request.');
+  return {
+    sheet,
+    row,
+    requestId: values[0],
+    parent: String(values[2] || ''),
+    student: String(values[3] || ''),
+    date: values[4],
+    start: values[5],
+    end: values[6],
+    duration: Number(values[7]) || 0,
+    mode: String(values[8] || ''),
+    notes: String(values[9] || ''),
+    status: String(values[10] || ''),
+    holdExpires: values[11]
+  };
+}
+
+function emailBookingDecision_(context, approved) {
+  const parentRecord = findRecord_(TUTRONIX.sheets.parents, 2, context.parent) || [];
+  const email = String(parentRecord[2] || '').trim();
+  if (!email) return;
+  const timeZone = getBook_().getSpreadsheetTimeZone();
+  MailApp.sendEmail({
+    to: email,
+    subject: approved ? 'Your Tutronix session is confirmed' : 'Update on your Tutronix session request',
+    body: approved
+      ? 'Your Tutronix session for ' + context.student + ' is confirmed for ' +
+        Utilities.formatDate(context.start, timeZone, 'EEEE, MMMM d') + ', ' +
+        Utilities.formatDate(context.start, timeZone, 'h:mm a') + ' - ' +
+        Utilities.formatDate(context.end, timeZone, 'h:mm a') + ' (' + context.mode + ').'
+      : 'Your requested Tutronix session for ' + context.student + ' was not confirmed. The time has been released. Please use your private booking link to choose another available time.',
+    name: 'Tutronix Method'
+  });
+}
+
+function getBookingFamily_(accessToken) {
+  const token = String(accessToken || '').trim();
+  if (!token) throw new Error('This booking link is incomplete.');
+  const parentSheet = getBook_().getSheetByName(TUTRONIX.sheets.parents);
+  const rows = parentSheet.getRange(2, 1, Math.max(parentSheet.getLastRow() - 1, 1), 12).getValues();
+  const parentRow = rows.find(row => String(row[9] || '').trim() === token);
+  if (!parentRow || String(parentRow[11] || '') !== 'Yes') throw new Error('This booking link is not active.');
+  const parent = String(parentRow[1] || '').trim();
+  const studentsSheet = getBook_().getSheetByName(TUTRONIX.sheets.students);
+  const students = studentsSheet.getRange(2, 1, Math.max(studentsSheet.getLastRow() - 1, 1), studentsSheet.getLastColumn())
+    .getValues()
+    .filter(row => String(row[2] || '').trim() === parent && String(row[7] || '') === 'Yes')
+    .map(row => String(row[1] || '').trim())
+    .filter(Boolean);
+  return { parent, email: String(parentRow[2] || ''), students };
+}
+
+function getOccupiedBookingIntervals_() {
+  const book = getBook_();
+  const intervals = [];
+  const schedule = book.getSheetByName(TUTRONIX.sheets.schedule);
+  if (schedule && schedule.getLastRow() >= 2) {
+    schedule.getRange(2, 1, schedule.getLastRow() - 1, 18).getValues().forEach(row => {
+      const date = row[1], start = row[2], end = row[3];
+      const mode = String(row[7] || '');
+      const status = String(row[9] || '');
+      if (!(date instanceof Date) || !(start instanceof Date) || !(end instanceof Date)) return;
+      if (['Cancelled - No Charge', 'Rescheduled'].indexOf(status) !== -1) return;
+      const buffer = mode === 'In-person' ? 30 : 0;
+      intervals.push({
+        start: new Date(combineDateAndTime_(date, start).getTime() - buffer * 60000),
+        end: new Date(combineDateAndTime_(date, end).getTime() + buffer * 60000)
+      });
+    });
+  }
+
+  const requests = book.getSheetByName(TUTRONIX.sheets.bookingRequests);
+  if (requests && requests.getLastRow() >= 2) {
+    requests.getRange(2, 1, requests.getLastRow() - 1, 14).getValues().forEach(row => {
+      if (String(row[10] || '') !== 'Pending') return;
+      if (row[11] instanceof Date && row[11] < new Date()) return;
+      const buffer = String(row[8] || '') === 'In-person' ? 30 : 0;
+      intervals.push({
+        start: new Date(row[5].getTime() - buffer * 60000),
+        end: new Date(row[6].getTime() + buffer * 60000)
+      });
+    });
+  }
+  return intervals;
+}
+
+function expireBookingHolds_() {
+  const sheet = getBook_().getSheetByName(TUTRONIX.sheets.bookingRequests);
+  if (!sheet || sheet.getLastRow() < 2) return;
+  const range = sheet.getRange(2, 1, sheet.getLastRow() - 1, 14);
+  const rows = range.getValues();
+  let changed = false;
+  rows.forEach(row => {
+    if (String(row[10] || '') === 'Pending' && row[11] instanceof Date && row[11] < new Date()) {
+      row[10] = 'Expired';
+      changed = true;
+    }
+  });
+  if (changed) range.setValues(rows);
+}
+
+function combineDateAndTime_(date, time) {
+  return new Date(
+    date.getFullYear(),
+    date.getMonth(),
+    date.getDate(),
+    time.getHours(),
+    time.getMinutes(),
+    0,
+    0
+  );
+}
+
+function roundUpToHalfHour_(date) {
+  const rounded = new Date(date);
+  rounded.setSeconds(0, 0);
+  const minutes = rounded.getMinutes();
+  if (minutes === 0 || minutes === 30) return rounded;
+  rounded.setMinutes(minutes < 30 ? 30 : 60);
+  return rounded;
+}
+
+function intervalsOverlap_(aStart, aEnd, bStart, bEnd) {
+  return aStart < bEnd && bStart < aEnd;
+}
+
+function initializeAvailabilityRow_(sheet, row) {
+  const values = sheet.getRange(row, 1, 1, 7).getValues()[0];
+  if (!values[1] && !values[2] && !values[3]) return;
+  if (!values[0]) values[0] = makeId_('AVL');
+  if (!values[4]) values[4] = 'Either';
+  if (!values[5]) values[5] = 'Available';
+  sheet.getRange(row, 1, 1, 7).setValues([values]);
 }
