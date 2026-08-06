@@ -301,7 +301,7 @@ function generateInvoicePdfById_(invoiceId) {
   const lineRows = linesSheet.getRange(2, 1, Math.max(linesSheet.getLastRow() - 1, 1), 10).getValues()
     .filter(row => String(row[0]).trim() === String(invoiceId).trim());
 
-  return createBrandedInvoicePdf_({
+  const invoiceData = {
     invoiceId: String(invoice[0]),
     parent: String(invoice[1] || ''),
     students: String(invoice[2] || ''),
@@ -309,6 +309,33 @@ function generateInvoicePdfById_(invoiceId) {
     totalHours: Number(invoice[4]) || 0,
     totalAmount: Number(invoice[5]) || 0,
     sessions: lineRows
+  };
+  const pdf = createBrandedInvoicePdf_(invoiceData);
+  emailInvoiceCopy_(invoiceData, pdf);
+  return pdf;
+}
+
+function emailInvoiceCopy_(invoice, pdf) {
+  const recipient = 'tutronixmiami@gmail.com';
+  const subject = 'Tutronix Invoice ' + invoice.invoiceId + ' - ' + invoice.parent;
+  const body = [
+    'A Tutronix invoice has been created and is ready for review.',
+    '',
+    'Invoice: ' + invoice.invoiceId,
+    'Parent/Guardian: ' + invoice.parent,
+    'Student(s): ' + invoice.students,
+    'Total hours: ' + invoice.totalHours.toFixed(2),
+    'Amount: $' + invoice.totalAmount.toFixed(2),
+    '',
+    'The client-ready PDF is attached. This message was sent only to the internal Tutronix email address.'
+  ].join('\n');
+
+  MailApp.sendEmail({
+    to: recipient,
+    subject: subject,
+    body: body,
+    name: 'Tutronix Method',
+    attachments: [DriveApp.getFileById(pdf.id).getBlob()]
   });
 }
 
