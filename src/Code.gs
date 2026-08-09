@@ -97,6 +97,7 @@ function syncScheduleRow_(sheet, row, editedStartColumn, editedEndColumn) {
   const lastEditedColumn = editedEndColumn || firstEditedColumn;
   const studentEdited = firstEditedColumn <= 6 && lastEditedColumn >= 6;
   const modeEdited = firstEditedColumn <= 8 && lastEditedColumn >= 8;
+  const timeEdited = firstEditedColumn <= 4 && lastEditedColumn >= 3;
 
   if (!hasEntry) return;
   if (!values[0]) values[0] = makeId_('SES');
@@ -104,8 +105,10 @@ function syncScheduleRow_(sheet, row, editedStartColumn, editedEndColumn) {
 
   if (start instanceof Date && end instanceof Date) {
     values[4] = Math.round((((end - start) / 3600000 + 24) % 24) * 100) / 100;
+    if (timeEdited || values[14] === '' || values[14] == null) values[14] = values[4];
   } else {
     values[4] = '';
+    if (timeEdited) values[14] = '';
   }
 
   const studentRecord = student ? findRecord_(TUTRONIX.sheets.students, 2, student) : null;
