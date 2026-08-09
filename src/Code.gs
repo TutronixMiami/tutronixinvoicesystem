@@ -174,8 +174,8 @@ function getOutstandingStudents() {
     if (!student || invoiceId || TUTRONIX.chargeableStatuses.indexOf(status) === -1) return;
 
     const parent = String(row[13] || 'Unassigned parent');
-    const hours = Number(row[14] !== '' ? row[14] : row[4]) || 0;
-    const amount = Number(row[15]) || roundMoney_(hours * Number(row[10] || 0));
+    const hours = Number(row[4]) || 0;
+    const amount = roundMoney_(hours * Number(row[10] || 0));
     const key = parent + '|' + student;
     if (!grouped[key]) grouped[key] = { parent, student, sessions: 0, hours: 0, amount: 0 };
     grouped[key].sessions++;
@@ -226,8 +226,8 @@ function createInvoices(studentKeys) {
 
     sessions.forEach(item => {
       const row = item.row;
-      const duration = Number(row[14] !== '' ? row[14] : row[4]) || 0;
-      const amount = Number(row[15]) || roundMoney_(duration * Number(row[10] || 0));
+      const duration = Number(row[4]) || 0;
+      const amount = roundMoney_(duration * Number(row[10] || 0));
       hours += duration;
       total += amount;
       lineRows.push([invoiceId, row[0], row[5], row[1], row[2], row[3], duration, row[8], row[10], amount]);
