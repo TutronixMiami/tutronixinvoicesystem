@@ -173,7 +173,7 @@ function getOutstandingStudents() {
     const invoiceId = String(row[17] || '').trim();
     if (!student || invoiceId || TUTRONIX.chargeableStatuses.indexOf(status) === -1) return;
 
-    const parent = String(row[13] || 'Unassigned parent');
+    const parent = resolveSessionParent_(row);
     const hours = Number(row[4]) || 0;
     const amount = roundMoney_(hours * Number(row[10] || 0));
     const key = parent + '|' + student;
@@ -191,6 +191,16 @@ function getOutstandingStudents() {
   }).sort((a, b) => a.parent.localeCompare(b.parent) || a.student.localeCompare(b.student));
 }
 
+function resolveSessionParent_(row) {
+  const savedParent = String(row[13] || '').trim();
+  if (savedParent) return savedParent;
+  const student = String(row[5] || '').trim();
+  const studentRecord = student ? findRecord_(TUTRONIX.sheets.students, 2, student) : null;
+  return studentRecord && String(studentRecord[2] || '').trim()
+    ? String(studentRecord[2]).trim()
+    : 'Unassigned parent';
+}
+
 function createInvoices(studentKeys) {
   if (!studentKeys || !studentKeys.length) throw new Error('Select at least one student.');
   const selected = new Set(studentKeys);
@@ -203,11 +213,11 @@ function createInvoices(studentKeys) {
 
   rows.forEach((row, index) => {
     const student = String(row[5] || '').trim();
-    const parent = String(row[13] || '').trim();
+    const parent = resolveSessionParent_(row);
     const status = String(row[9] || '');
     const key = parent + '|' + student;
     if (!selected.has(key) || row[17] || TUTRONIX.chargeableStatuses.indexOf(status) === -1) return;
-    if (!parent) throw new Error('A selected student is missing a parent.');
+    if (parent === 'Unassigned parent') throw new Error(student + ' is missing a parent. Add the parent on the Students tab, then reopen Prepare invoices.');
     if (!grouped[parent]) grouped[parent] = [];
     grouped[parent].push({ row, sheetRow: index + 2 });
   });
